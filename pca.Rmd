@@ -1,0 +1,342 @@
+---
+title: "A Principal Components Analysis Tutorial"
+author: "Andrew Choe, Jonathan Kay, Kyle Vu"
+date: "Spring 2018"
+output:
+  pdf_document: default
+  rmarkdown::html_document:
+    code_folding: show
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+#DON'T MODIFY THIS CHUNK!
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, tidy = FALSE, tidy.opts=list(width.cutoff=50))
+```
+
+A common hurdle in applying statistical methods to answer interesting questions is the acquistion of germane data. Therefore, one might conclude, it should be a data scientist's dream to have access to a massive number of predictors about a given response variable. Surely a model of immaculate quality would be produced by a data scientist with such a war chest of predictors. 
+
+Not quite. Linear regression operates on several assumptions, one of which is the assumption of little to no multicollinearity between predictors. Multicollinearity, which occurs when one predictor has a strong linear relationship with another predictor, results in higher variance among our model coefficient estimates, leading to unstable and unreliable model predictions.
+
+How can we combat this issue? A clunky method of working around multicollinearity would be to render pairwise scatterplots to explore all the linear relationships between the predictors in the dataset. Though this might seem trivial, the number of pairwise comparisons grows quadratically - 15 predictors would require 105 pairwise comparisons! Peering over 105 scatterplots is hardly a time-efficient way to approach this problem, so we will explore another method.
+
+Harry Houdini is widely renowned as the greatest magician ever, but after today, you'll share our group's opinion that this title should be held by Karl Pearson. At the onset of the 20th century, Pearson developed principal components analysis (PCA), a potent tool in reducing the dimensions of a data set. With a wave of his eigenvector wand, Pearson transformed correlated predictors into variables that were uncorrelated, or orthogonal. These new orthogonal predictor variables are called principal components and allow us to visualize higher-dimensional data while eliminating our original concern of multicollinearity without losing much information.
+
+Our group will examining a rich data set: the [World Development Indicators data from the World Bank](https://datacatalog.worldbank.org/dataset/world-development-indicators). The full data set contains data on 1591 variables for 264 countries across 58 years. We selected 24 potential indicators for predicting a quantitative response variable, pump price for gasoline measured in US dollars per liter, for 30 countries across every two years starting in 1995. The countries represented in our dataset had the highest nominal GDPs per the [International Monetary Fund](http://www.imf.org/external/pubs/ft/weo/2018/01/weodata/weorept.aspx?sy=2017&ey=2017&scsm=1&ssd=1&sort=country&ds=.&br=1&c=512%2C946%2C914%2C137%2C612%2C546%2C614%2C962%2C311%2C674%2C213%2C676%2C911%2C548%2C193%2C556%2C122%2C678%2C912%2C181%2C313%2C867%2C419%2C682%2C513%2C684%2C316%2C273%2C913%2C868%2C124%2C921%2C339%2C948%2C638%2C943%2C514%2C686%2C218%2C688%2C963%2C518%2C616%2C728%2C223%2C836%2C516%2C558%2C918%2C138%2C748%2C196%2C618%2C278%2C624%2C692%2C522%2C694%2C622%2C142%2C156%2C449%2C626%2C564%2C628%2C565%2C228%2C283%2C924%2C853%2C233%2C288%2C632%2C293%2C636%2C566%2C634%2C964%2C238%2C182%2C662%2C359%2C960%2C453%2C423%2C968%2C935%2C922%2C128%2C714%2C611%2C862%2C321%2C135%2C243%2C716%2C248%2C456%2C469%2C722%2C253%2C942%2C642%2C718%2C643%2C724%2C939%2C576%2C644%2C936%2C819%2C961%2C172%2C813%2C132%2C726%2C646%2C199%2C648%2C733%2C915%2C184%2C134%2C524%2C652%2C361%2C174%2C362%2C328%2C364%2C258%2C732%2C656%2C366%2C654%2C734%2C336%2C144%2C263%2C146%2C268%2C463%2C532%2C528%2C944%2C923%2C176%2C738%2C534%2C578%2C536%2C537%2C429%2C742%2C433%2C866%2C178%2C369%2C436%2C744%2C136%2C186%2C343%2C925%2C158%2C869%2C439%2C746%2C916%2C926%2C664%2C466%2C826%2C112%2C542%2C111%2C967%2C298%2C443%2C927%2C917%2C846%2C544%2C299%2C941%2C582%2C446%2C474%2C666%2C754%2C668%2C698%2C672&s=NGDPD&grp=0&a=&pr.x=45&pr.y=14). Some of the independent variables were intentionally selected to create a cohort of predictors that exhibited some level of multicollinearity (e.g. manufacturing value and industry value), thereby creating a situation where PCA should be useful.
+
+```{r}
+# load necessary libraries
+library(dplyr)
+library(readr)
+library(tidyr)
+library(caret)
+library(broom)
+library(rmarkdown)
+library(ggplot2)
+library(plyr)
+library(knitr)
+
+# use the two lines of commented code below to install the ggbiplot package
+#library(devtools)
+#install_github("vqv/ggbiplot")
+library(ggbiplot)
+```
+
+First, we'll do a bit of data cleaning.
+
+```{r}
+# read in predictors data downloaded from World Bank, encode ".." as NA
+wdi_data <- read.csv("296060b6-3430-4188-9910-7fa069d3a2c3_Data.csv", na.strings = "..") %>%
+  select(-Time.Code)
+
+# rename variables
+names(wdi_data) <- c("year", "country", "country_code", "pop_density", "urban_pop_total", "urban_pop_growth", "manufacturing_value", "industry_value", "agriculture_value", "services_value", "external_debt", "air_pollution_exp", "water_productivity", "fuel_export_merch", "fuel_import_merch", "merch_exports", "merch_imports", "access_electric", "tech_export", "tariff_rate", "cpia_environ", "cpia_sustain", "carbon_emissions", "urban_pop_tot", "rural_pop", "air_freight", "travel_imports", "travel_exports", "transport_exports", "transport_imports", "air_passengers", "rail_goods", "rail_passengers")
+
+# read in response variable data downloaded from World Bank, encode ".." as NA
+pump_data <- read.csv("7d2c3e28-2127-4884-abb5-3346e10845a3_Data.csv", na.strings = "..") %>%
+  select(-Time.Code, -Country.Code)
+
+# join predictors and response; remove World Bank miscellanea (i.e. non-data) within dataframe
+wdi_clean <- left_join(wdi_data, pump_data, by = c("country" = "Country.Name", "year" = "Time")) %>%
+  filter(country != "") %>%
+  mutate(year = as.character(year)) %>% # year will later become numeric 
+  select(-country_code)
+
+names(wdi_clean)[33] <- "pump_price" 
+
+wdi_clean <- wdi_clean[, -18] # remove a redundant variable
+```
+
+Our biggest problem is missingness. Almost no variable was perfectly recorded; instead, we were looking for systematic trends in significant NAs for particular countries, variables, or time frames. 
+
+We found that our response variable, `pump_price`, had significant missingness before 1995, after which it was mostly reported biennially. Five other variables had too much missingness to be useful in further analysis: `external_debt`, `air_pollution_exp`, `water_productivity`, `cpia_environ`, and `cpia_sustain`. None of the countries we drew data on had excessively concerning levels of overall missingness once these variables were accounted for.
+
+```{r}
+# NAs by variable
+na_table <- gather(summarise_all(wdi_clean, funs(sum(is.na(.)))), "variable", "NAs")
+
+kable(head(arrange(na_table, desc(NAs)), 5))
+
+# pump price values are reported biennially from 1995
+missing_val <- wdi_clean %>% 
+  select(country, year, pump_price) %>%
+  spread(key = country, value = pump_price)
+
+# evaluate variable missingness by country
+country_NAs <- wdi_clean %>%
+  group_by(country) %>%
+  summarize_all(funs(sum(is.na(.))))
+```
+
+```{r}
+# Remove variables with the most missing observations
+wdi_clean <- wdi_clean %>%
+  select(-c(external_debt, air_pollution_exp, water_productivity, cpia_environ, cpia_sustain)) %>%
+  mutate(year=as.numeric(year))%>%
+  filter(year >= 1995, year <= 2015, year %% 2 == 0) # keep even years
+
+# save clean dataset locally
+write.csv(wdi_clean, file = "wdi_clean.csv")
+```
+
+Now, we perform imputation of our missing variables to get rid of all NAs within the dataset. Our group used k-nearest nearest neighbors, a clustering technique, to impute missing values.
+
+```{r, results = 'hide'}
+isolate <- wdi_clean %>% select(year, country)
+
+# impute missing values using median imputation method
+wdi_process <- preProcess(select(wdi_clean, -c(year, country)), method = "knnImpute")
+wdi_imputed <- predict(wdi_process, select(wdi_clean, -c(year, country)))
+wdi_imputed <- cbind(isolate, wdi_imputed)
+
+# confirm that there is no more missingess
+glimpse(summarise_all(wdi_imputed, funs(sum(is.na(.)))))
+```
+
+Now that the data is cleaned, we immediately notice that we have a multicollinearity issue due to the number of predictor variables in the dataset. Generally, as the number of predictors increases, so does the likelihood of a multicollinearity issue manifesting. To verify this concern, we examine the correlation and scatterplot correlation matrices and observe that quite a few predictors, such as manufacturing value and industry value, have a strong linear relationship with other predictors - 26 distinct pairs of predictors have correlations above 0.70! 
+
+Consequently, we will use principal component analysis to help work around the issue of multicollinearity. 
+
+```{r}
+# find predictor variable pairs where correlation is above 0.7 cutoff
+cor_matrix <- as.data.frame(cor(wdi_imputed[,-c(1,2)]))
+cor_matrix <- cbind(variable1 = rownames(cor_matrix), cor_matrix)
+cor_matrix_tidy <- gather(cor_matrix, key = "variable2", value = "correlation", pop_density:pump_price)
+
+# 26 distinct pairs of predictors have correlations above 0.70
+trouble_correlations <- filter(cor_matrix_tidy, correlation > 0.7, correlation != 1)
+num_trouble <- nrow(trouble_correlations)/2 # eliminate redundant pairs
+```
+
+```{r}
+# example pairwise scatterplot correlation matrix of highly correlated predictors
+# imagine how large this matrix would be if we ran comparisons between all 24 predictors!
+pairs(~ manufacturing_value + industry_value + air_freight + services_value, data = wdi_imputed)
+```
+
+# Principal Components Analysis
+Now, we can get into our principal components analysis. This can feel really complicated, particularly if you're not familiar with linear algebra, but at its core, we're trying to go from having many explanatory variables to fewer. We do this not by getting rid of predictors but instead by creating new variables called **principal components** that can represent most of the information of the original predictor variables but with fewer dimensions.
+
+> The idea is that each of the n observations lives in p-dimensional space, but not
+> all of these dimensions are equally interesting. PCA seeks a small number
+> of dimensions that are as interesting as possible, where the concept of interesting
+> is measured by the amount that the observations vary along each dimension. 
+> - [Springer Texts in Statistics, G. Casella et al.](https://www.springer.com/series/417)
+
+It's easiest to just go through the process and then explain how we got there. We start by creating a training dataset and test dataset. The former is used to build our principal components; the latter is then used to test the predictive accuracy of these new predictors.
+
+```{r}
+# Divide dataset into test and train datasets (80/20 split). 
+#We'll find our PCs based on the training dataset and use the testing dataset later in the modeling stage.
+set.seed(666)
+
+smp_size <- floor(0.8 * nrow(wdi_imputed))
+train_index <- sample(seq_len(nrow(wdi_imputed)), size = floor(.8 * nrow(wdi_imputed)))
+
+wdi_train <- wdi_imputed[train_index, ]
+wdi_test <- wdi_imputed[-train_index, ]
+```
+
+We'll discuss a simplified example where we only have four countries - Iran, China, France, and Germany - and three explanatory variables: `merch_imports`, `manufacturing_value`, and `rural_pop`.
+
+We remove everything except these three explanatory variables, including `pump_price`, `year`, and `country`, which are our response and indicator variables. Because principal components analysis is a form of **unsupervised learning**, principal components are determined solely by explanatory variables.
+
+Running principal components using the base `stats` package actually takes only a single line of code-the `prcomp()` function does all the work (including the standardization of variables) for us.
+
+```{r}
+# set up example dataset
+wdi_example <- wdi_train %>% filter(country %in% c("Iran, Islamic Rep.", "China", "France", "Germany"))
+pca_train_example <- wdi_example %>% select(merch_imports, manufacturing_value, rural_pop)
+
+# run PCA  
+prin_comp_example <- prcomp(pca_train_example, scale. = TRUE)
+```
+
+`prcomp()` returns a bunch of different values, but rotation is probably the most important one. 
+At the moment, there are 4 columns in our rotation data frame. Each column represents a principal component; each row is an original explanatory variable. Each value is a "loading," which can be thought of as the **amount that a variable contributes to a particular principal component**, or, alternately, that variable's weight in the component. 
+
+If you're familiar with linear algebra, what's actually happening here is that each principal component is a linear combination of all the other predictors and the loading is the coefficient $\phi$ for a particular predictor $x$.
+$$PC_i = \phi_1x_1 + \phi_2x_2 +  ...  + \phi_nx_n$$
+
+Looking at our rotations, we see that `rural_pop` contributes a lot of information to PC2 but relatively little to PC1. `manufacturing_value`, meanwhile, has a lot of weight in PC1 but relatively little in PC2.
+
+```{r}
+# take a look at PC loadings
+kable(prin_comp_example$rotation)
+```
+
+It can help to visualize this using `ggbiplot()`. In the figure below, the x-axis represents the first principal component and the y-axis represents the second one. Each point represents an observation - one year of values for a particular country - and each arrow represents a variable. If a variable is pointing very horizontally, like `manufacturing_value`, it's contributing a lot of information to - receiving a lot of weight in - the first principal component. Conversely, it's contributing less to the second principal component.
+
+Although this example has only three explanatory variables, it demonstrates two of the main uses of principal components analysis. First, PC1 and PC2 together account for a whopping **98.3%** of the variance in our example data. That means that we could potentially discard our third principal component entirely, reducing our total dimensions to 2, without sacrificing much information. 
+
+Second, PCA allows us to visualize a large number of explanatory variables on a single two-dimensional scatterplot. This is slightly less useful if we only start out with only three dimensions, but we can still see that China is strikingly different from the other countries in our example dataset across our selected explanatory variables. What this method sacrifices, unfortunately, is the ability to see exactly **how** China is different for specific variables.
+
+```{r}
+# build example biplot using ggbiplot; note that this object behaves like a ggplot object
+ggbiplot(prin_comp_example, scale = 1, labels = wdi_example[,"year"], groups = wdi_example[,"country"]) +
+  labs(title = "Friendly Biplot",
+       subtitle = "Notice how PCA allows us to visualize how China's economy evolves as time progresses.",
+       col = "Country",
+       caption = "Data: The World Bank World Development Indicators") +
+  theme_minimal()
+```
+
+Now that we have a grasp of the basics of PCA, it's time to return to our full set of data with 24 predictors and repeat the above process. 
+
+```{r}
+# build scary biplot
+pca_train <- wdi_train %>% select(-c(pump_price, country, year))
+prin_comp <- prcomp(pca_train, scale. = TRUE)
+
+ggbiplot(prin_comp, scale = 1, labels = wdi_train$year, groups = wdi_train$country) +
+  labs(title = "Scary Biplot",
+       subtitle = "Principal components can become difficult to visualize\n as the number of variables and observations grows.",
+       col = "Country",
+       caption = "Data: The World Bank World Development Indicators") +
+  theme_minimal()
+```
+
+As you can see, with more variables and groups of observations, PCA becomes a lot more difficult to visualize. Furthermore, unlike the first example, our first two principal components together only explain about 55% of the variance in our data.
+
+At the moment, we're preserving all of our principal components, but the point here was to end up with fewer variables. Now we want to find the PCs that explain the most variance - in other words, the most useful ones - and axe the rest. The process to do so looks similar to the hyperparameter tuning performed when building some machine learning models.
+
+```{r}
+# Now we want to find the PCs that explain the most variance - in other words, the most useful PCs
+pc_variance <- prin_comp$sdev^2
+prop_varex <- pc_variance/sum(pc_variance)
+
+# at 5 PCs, an "elbow" appears in the plot and the variance explained begins to flatten
+plot(prop_varex, 
+     xlab = "Principal Component",
+     ylab = "Proportion of Variance Explained",
+     type = "b")
+```
+
+```{r}
+# cumulative scree plot...with 5 PCS, we explain about 80% of variance within the data
+plot(cumsum(prop_varex), 
+     xlab = "Principal Component",
+     ylab = "Proportion of Variance Explained",
+     type = "b")
+```
+
+In the scree plot, we see that the variance explained begins to plateau around five principal components. Graphically, this manifests as an "elbow" shape within the plot; each additional principal component after the fifth explains less and less variance. We can thus trim our twenty-four predictors down to the first five principal components, while still being able to explain about 80% of variance within our data. (There are other possible cut-off points, like at 15 predictor variables, depending on your needs.)
+
+Furthermore, our new cohort of predictors are uncorrelated by construction; contrast this with the troublesome presence of multicollinearity among our original predictors. To illustrate this, we examine the scatterplot correlation matrix of the first five principal component variables to observe that they are indeed uncorrelated.  
+
+```{r}
+train_data <- data.frame(pump_price = wdi_train$pump_price, prin_comp$x)
+
+# looking at first 5 principal components
+train_data <- train_data[, 1:6]
+
+# pairwise correlation matrix with first 5 PCS
+pairs(~ PC1 + PC2 + PC3 + PC4 + PC5, data = train_data)
+```
+
+# Modeling
+
+Now, we want to create a linear regression model with our principal components and compare them to a model constructed with our original predictors. 
+
+We first calculate the model mean squared error (MSE) for the model with the principal components. Then, we create an empty model with no predictors, in order to perform a combined stepwise procedure to do model selection with our principal component predictors. 
+
+Once we have our optimized model from the stepwise procedure, we use it to predict the pump price values for our test dataset before then determining our test MSE to gauge our model's predictive accuracy.
+
+```{r, results='hide'}
+set.seed(111)
+
+# linear model with all the transformed variable
+mod <- lm(pump_price ~., data=train_data)
+
+# linear model with no variables
+mod_none<-lm(pump_price~1,data=train_data)
+
+# Compute MSE of model
+mod_MSE <- (glance(mod)$sigma)^2
+
+# combined stepwise procedure
+combined.cp <- step(mod_none, scope = list(upper = mod),
+scale = mod_MSE)
+```
+
+```{r}
+# Final linear model with transformed variables 
+mod_final <- lm(pump_price ~ PC3 + PC2 + PC1 + PC5, data = train_data)
+
+# add transformed variables to test-data
+test_data <- predict(prin_comp, newdata = wdi_test)
+test_data <- as.data.frame(test_data)
+
+# select the first 5 principal components
+test_data <- test_data[, 1:5]
+
+#predict on test data
+mod_predict<- predict(mod_final, test_data)
+
+# compute predictive accuracy of model build with PCs
+pc_MSE<-sum((wdi_test$pump_price-mod_predict)^2)/nrow(wdi_test)
+kable(pc_MSE)
+```
+
+
+We then mirror this set of steps to build a linear model with the original predictor variables in order to compare it to the model built on principal components. It's important to note that the stepwise procedure results in an optimized model with fixed effect variables `year` and `country`. 
+
+```{r, results='hide'}
+set.seed(111)
+#linear model with untransformed variables 
+mod_r <- lm(pump_price ~.,
+            data=wdi_train) 
+
+#compute MSE of model with untransformed variables
+mod_MSE1 <-(glance(mod_r)$sigma)^2
+
+#linear model with no variables
+mod_r_none<-lm (pump_price~1,data=wdi_train)
+
+#combined stepwise procedure
+combined.cpr <- step(mod_r_none, scope = list(upper = mod_r),
+scale = mod_MSE1)
+```
+
+```{r}
+# note that year and country are treated as fixed effects rather than random effects that vary across individuals
+
+# final linear model
+mod_r_final <- lm(pump_price ~ country + year + merch_exports + carbon_emissions + 
+    tariff_rate + air_freight + urban_pop_tot + urban_pop_growth + 
+    fuel_import_merch, data = wdi_train)
+
+#predict final model on test data
+mod_rpredict <- predict(mod_r_final, wdi_test)
+
+# compute predictive accuracy of model build with original predictors
+original_MSE <- sum((wdi_test$pump_price - mod_rpredict)^2)/nrow(wdi_test)
+
+kable(original_MSE)
+```
+
+The model with principal component variables had a marginally higher test MSE than that of the model with untransformed predictor variables (1.031 vs. 1.021), which indicates that principal components were slightly less effective in predicting pump price. 
+
+This could potentially be caused by our choice of k-nearest neighbors imputation: different imputation methods might result in different test MSEs. This is a reality of working with real data that has lots of missingness, where the findings don't always align with our expectations. We also could have chosen to use more principal components - we only used 5 out of 24 - in order to provide more information to build our model. Moreover, even if our principal components model had a higher MSE, it did follow statistical modeling best practices by avoiding the problems of multicollinearity that might end up being an issue for the normal model. It's thus always worth considering principal components analysis when you're faced with a high risk of correlation among a large number of predictors.
+
+
