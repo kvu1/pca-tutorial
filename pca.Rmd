@@ -3,8 +3,8 @@ title: "A Principal Components Analysis Tutorial"
 author: "Andrew Choe, Jonathan Kay, Kyle Vu"
 date: "Spring 2018"
 output:
-  pdf_document: default
-  rmarkdown::html_document:
+  html_document:
+    df_print: paged
     code_folding: show
     theme: lumen
 ---
@@ -46,14 +46,14 @@ First, we'll do a bit of data cleaning.
 
 ```{r}
 # read in predictors data downloaded from World Bank, encode ".." as NA
-wdi_data <- read.csv("296060b6-3430-4188-9910-7fa069d3a2c3_Data.csv", na.strings = "..") %>%
+wdi_data <- read.csv("./Data/296060b6-3430-4188-9910-7fa069d3a2c3_Data.csv", na.strings = "..") %>%
   select(-Time.Code)
 
 # rename variables
 names(wdi_data) <- c("year", "country", "country_code", "pop_density", "urban_pop_total", "urban_pop_growth", "manufacturing_value", "industry_value", "agriculture_value", "services_value", "external_debt", "air_pollution_exp", "water_productivity", "fuel_export_merch", "fuel_import_merch", "merch_exports", "merch_imports", "access_electric", "tech_export", "tariff_rate", "cpia_environ", "cpia_sustain", "carbon_emissions", "urban_pop_tot", "rural_pop", "air_freight", "travel_imports", "travel_exports", "transport_exports", "transport_imports", "air_passengers", "rail_goods", "rail_passengers")
 
 # read in response variable data downloaded from World Bank, encode ".." as NA
-pump_data <- read.csv("7d2c3e28-2127-4884-abb5-3346e10845a3_Data.csv", na.strings = "..") %>%
+pump_data <- read.csv("./Data/7d2c3e28-2127-4884-abb5-3346e10845a3_Data.csv", na.strings = "..") %>%
   select(-Time.Code, -Country.Code)
 
 # join predictors and response; remove World Bank miscellanea (i.e. non-data) within dataframe
@@ -96,7 +96,7 @@ wdi_clean <- wdi_clean %>%
   filter(year >= 1995, year <= 2015, year %% 2 == 0) # keep even years
 
 # save clean dataset locally
-write.csv(wdi_clean, file = "wdi_clean.csv")
+write.csv(wdi_clean, file = "./Data/wdi_clean.csv", )
 ```
 
 Now, we perform imputation of our missing variables to get rid of all NAs within the dataset. Our group used k-nearest nearest neighbors, a clustering technique, to impute missing values.
